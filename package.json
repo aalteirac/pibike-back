@@ -1,0 +1,23 @@
+{
+  "name": "filefeeder",
+  "version": "1.0.0",
+  "description": "feed data files to fake sensors",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "anthony alteirac",
+  "license": "MIT",
+  "dependencies": {
+    "aai-ant-plus": "^0.1.2",
+    "enigma.js": "^2.2.0",
+    "fs-extra": "^5.0.0",
+    "json2csv": "^3.11.5",
+    "koa": "^2.5.0",
+    "koa-cors": "0.0.16",
+    "koa-mount": "^3.0.0",
+    "koa-router": "^7.4.0",
+    "sftp-sync-deploy": "^0.7.1",
+    "ws": "^4.0.0"
+  }
+}
