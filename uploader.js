@@ -1,9 +1,9 @@
 const { deploy } = require('sftp-sync-deploy');
 
 let config = {
-    host: '34.236.244.164',//172.30.106.234 //34.236.244.164
+    host: 'xxxx'
     port: 2222,
-    username: 'ec2-user',
+    username: 'xxx',
     privateKey: 'bk.pem',
     localDir: '/home/pi/qlik/data/qvd',
     remoteDir: '/home/ec2-user/core-qdt/Apps/upload'
