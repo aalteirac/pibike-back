@@ -29,24 +29,27 @@ var curapp;
 var curappRead;
 var simulationRunning=null;
 var reloadInterval=5000;
-var reloadTick=6;
+var reloadTick=10;
 var rider={};
 var isBiking=false;
 var curSpeed="None";
 var curCadence="None";
+var cachedRow=[];
 const trigReloadURL="https://demosapi.qlik.com/api/qdt-core/reload/";
 
 
 async function initANT(){
-    speedSensor.setWheelCircumference(1.1018);
+    speedSensor.setWheelCircumference(2.118);
     speedSensor.on('speedData', async data => {
+        //console.log(new Date(),data.CalculatedSpeed,data.CalculatedDistance)
         if(isBiking && simulationRunning==null) {
-            //write(rider, rider.cadence|"null", data.CalculatedSpeed,data.CalculatedSpeed*2.50);
-            await write(rider, rider.cadence|"null", data.CalculatedSpeed,data.CalculatedDistance);
-            count++;
-            if(count==reloadTick) {
+            var line=getRndLine(rider, rider.cadence|"null", data.CalculatedSpeed,data.CalculatedDistance);
+            await write(rider, rider.cadence|"null", data.CalculatedSpeed,data.CalculatedDistance)
+            cachedRow.push(line);
+            if(cachedRow.length>reloadTick){
+                //await writeBulk(cachedRow);
+                cachedRow = [];
                 await reloadApp();
-                count=0;
             }
         }
         if(simulationRunning==null)curSpeed=data.CalculatedSpeed
@@ -137,34 +140,34 @@ async function httpsGet(theUrl) {
 }
 
 async function reloadApp() {
-	return new Promise(async (resolve, reject)=> {
-    if (!curapp) {
-			const session = enigma.create({
-				schema,
-				url: `ws://${host}:9076/app`,
-				createSocket: url => new WebSocket(url),
-			});
-			const qix = await session.open();
-		
-			curapp = await qix.openDoc(docName);
-			console.log(curapp.id);
-		}
-		
-		 await curapp.doReload().catch(
-			(err) => {
-				curapp=null;
-				console.log(err);
-				reject();
-			});	
-		var res =await curapp.doSave().catch(
-			(errsave) => {
-				curapp=null;
-				console.log(errsave);
-				reject();
-			});
-		//console.log(res)	
-		resolve();
-	})
+    return new Promise(async (resolve, reject)=> {
+        if (!curapp) {
+            const session = enigma.create({
+                schema,
+                url: `ws://${host}:9076/app`,
+                createSocket: url => new WebSocket(url),
+            });
+            const qix = await session.open();
+
+            curapp = await qix.openDoc(docName);
+            console.log(curapp.id);
+        }
+
+        await curapp.doReload().catch(
+            (err) => {
+                curapp=null;
+                console.log(err);
+                reject();
+            });
+        var res =await curapp.doSave().catch(
+            (errsave) => {
+                curapp=null;
+                console.log(errsave);
+                reject();
+            });
+        //console.log(res)
+        resolve();
+    })
     //return await fse.copy(appsPath+docName, appsPath+docReadName)
 }
 
@@ -193,6 +196,35 @@ function getRndLine(rider,cadence,speed,dist) {
     }
 }
 
+async function writeBulk(lines) {
+    //rider,cadence,speed,dist
+    return new Promise((resolve, reject)=> {
+        var toCsv = {
+            data: lines,
+            fields: fields,
+            quotes: '',
+            //eol: "\r\n",
+            hasCSVColumnTitle: false
+        };
+        fs.stat(filePath, function (err, stat) {
+            if (err == null) {
+                var csv = json2csv(toCsv);
+                fs.appendFile(filePath, csv, function (err) {
+                    if (err) reject(err);
+                    resolve('The data was appended to file: ' + JSON.stringify(line));
+                });
+            }
+            else {
+                fields = (fields);
+                var csv = json2csv(toCsv);
+                fs.writeFile(filePath, fields + "\r\n" + csv+"\r\n", function (err, stat) {
+                    if (err) reject(err);
+                    resolve('file saved');
+                });
+            }
+        });
+    })
+}
 async function write(rider,cadence,speed,dist) {
     var line;
     return new Promise((resolve, reject)=> {
@@ -268,11 +300,13 @@ async function deleteCSV() {
 async function simulateSensor(rider){
     curSpeed=randomInt(7,15)
     curCadence= curSpeed*randomInt(2,3.3)
-    await write(rider,curCadence,curSpeed,curSpeed*2.23);
-    curSpeed=randomInt(7,15)
-    curCadence= curSpeed*randomInt(2,3.3)
-    await write(rider,curCadence,curSpeed,curSpeed*2.23);
-    await reloadApp();
+    await write(rider,curCadence,curSpeed,curSpeed/2);
+    cachedRow.push("dum");
+    if(cachedRow.length==reloadTick){
+        cachedRow=[];
+        await reloadApp();
+    }
+
 }
 
 router.get('/stat', async (ctx, next) => {
@@ -321,7 +355,7 @@ router.get('/simu', async (ctx, next) => {
             isBiking=true;
             simulationRunning = setInterval(()=> {
                 simulateSensor(rider);
-            }, reloadInterval)
+            }, 450)
             setTimeout(()=>{
                 clearInterval(simulationRunning);
                 simulationRunning=null;
@@ -329,11 +363,12 @@ router.get('/simu', async (ctx, next) => {
                 isBiking=false;
                 curCadence=0;
                 curSpeed=0;
-                uploader.upload().then(()=>{
-                    httpsGet(trigReloadURL).then((res)=>{
-                        console.log(res)
-                    })
-                });
+                cachedRow=[];
+                //uploader.upload().then(()=>{
+                //    httpsGet(trigReloadURL).then((res)=>{
+                //        console.log(res)
+                //    })
+                //});
             },parseInt(ctx.request.query["t"]))
             ctx.body = {result:"Started"};
             await next();
@@ -377,14 +412,23 @@ router.get('/restart', async (ctx, next) => {
             rider.name=decodeURIComponent( ctx.request.query["r"])
             rider.org=decodeURIComponent( ctx.request.query["rc"])
             isBiking=true;
+            //var rld=setInterval(async()=>{
+            //    if(cachedRow.length>0){
+            //        await writeBulk(cachedRow);
+            //        await reloadApp();
+            //        cachedRow = [];
+            //    }
+            //},reloadInterval)
             setTimeout(()=>{
+                //clearInterval(rld);
                 count=0;
                 isBiking=false;
-                uploader.upload().then(()=>{
-                    httpsGet(trigReloadURL).then((res)=>{
-                        console.log(res)
-                    })
-                });
+                cachedRow=[];
+                //uploader.upload().then(()=>{
+                //    httpsGet(trigReloadURL).then((res)=>{
+                //        console.log(res)
+                //    })
+                //});
             },parseInt(ctx.request.query["t"]))
             ctx.body = {result:"Started"};
             await next();
